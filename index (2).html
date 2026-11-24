@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Storyloom</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{color-scheme:light;--bg:#faf6ef;--side:#f3ece1;--ink:#4a423b;--mute:#9a8f84;--line:#e8dfd2;--pink:#ead3d0;--sage:#d5e0d0;--lav:#dcd5e8;--blue:#d3e2ea}
+html,body{height:100%;margin:0}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;overflow-x:hidden;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+button{font:inherit;color:inherit;background:var(--sage);border:0;border-radius:8px;padding:6px 12px;cursor:pointer}
+button.ghost{background:transparent;color:var(--mute)}
+button:hover{filter:brightness(.97)}
+input{font:inherit;color:inherit}
+#app{display:flex;height:100%}
+#side{width:280px;flex:none;background:var(--side);padding:22px 16px;overflow-y:auto}
+.brand{font:600 1.35rem Georgia,serif;margin:0 6px 18px}
+.nav,.proj{display:block;padding:7px 10px;border-radius:8px;cursor:pointer}
+.nav{color:var(--mute);font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;margin-top:6px}
+.proj{font-family:Georgia,serif}
+.proj.on{background:var(--pink)}
+.sec{display:flex;justify-content:space-between;align-items:center;margin:10px 10px 2px 22px;color:var(--mute);font-size:.78rem}
+.sec button{background:none;padding:0 6px;font-size:1.1rem;color:var(--mute)}
+.file{display:flex;align-items:center;gap:2px;margin-left:22px;padding:5px 8px;border-radius:8px;cursor:pointer;font-size:.92rem}
+.file span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file.on{background:var(--lav)}
+.file button{background:none;padding:0 5px;color:var(--mute)}
+.addp{margin:16px 6px 0;background:var(--blue)}
+.out{margin:8px 6px 0}
+#main{flex:1;min-width:0;overflow-y:auto;position:relative}
+.top{display:none;position:sticky;top:0;z-index:5;background:var(--bg);padding:8px 12px}
+.page{max-width:720px;margin:0 auto;padding:40px 28px 120px}
+.page h1{font:600 1.9rem Georgia,serif;margin:0 0 24px}
+.row{display:flex;align-items:center;gap:8px;padding:14px 0;border-bottom:1px solid var(--line)}
+.row .n{flex:1;font:1.15rem Georgia,serif;cursor:pointer;overflow-wrap:anywhere}
+.hint{color:var(--mute)}
+.tools{position:sticky;top:0;z-index:4;background:var(--bg);display:flex;flex-wrap:wrap;gap:6px;padding:10px 0;margin-bottom:8px}
+.tools button{background:var(--blue);min-width:36px;padding:5px 9px}
+.title{width:100%;border:0;background:none;outline:none;font:600 2rem Georgia,serif;padding:0;margin:0 0 6px}
+.meta{float:right;color:var(--mute);font-size:.8rem}
+.ed{min-height:60vh;outline:none;font:1.15rem/1.85 Georgia,serif;overflow-wrap:anywhere}
+.ed:empty:before{content:attr(data-ph);color:var(--mute)}
+.ed img{max-width:100%;height:auto;border-radius:6px}
+.ed h1{font-size:1.7rem}.ed h2{font-size:1.4rem}
+.login{max-width:340px;margin:18vh auto 0;padding:0 24px}
+.login input,.box input{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;margin-bottom:12px}
+.login button{width:100%}
+#modal{position:fixed;inset:0;background:rgba(74,66,59,.25);display:flex;align-items:center;justify-content:center;z-index:20;padding:20px}
+#modal[hidden]{display:none}
+.box{background:var(--bg);border-radius:14px;padding:22px;width:100%;max-width:360px}
+.box .row{border:0;justify-content:flex-end;padding:0}
+@media(max-width:800px){
+ #side{position:fixed;inset:0 auto 0 0;z-index:10;transform:translateX(-100%);transition:transform .2s;padding-top:calc(22px + env(safe-area-inset-top,0px))}
+ #side.open{transform:none;box-shadow:4px 0 20px rgba(0,0,0,.08)}
+ .top{display:block}.page{padding:20px 18px 100px}.title{font-size:1.6rem}
+}
+</style>
+</head>
+<body>
+<div id="app"><nav id="side"></nav><div id="main"></div></div>
+<div id="modal" hidden></div>
+<script>
+// ---- Settings: paste your own Supabase values here ----
+const SUPABASE_URL='https://ujdegqqpuvxhmcrupeuo.supabase.co';
+const SUPABASE_KEY='sb_publishable_aoVaCRPtZTU3FpNdCabEPQ_C9ixuAfD';
+// -------------------------------------------------------
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sorted=a=>[...a].sort((x,y)=>x.order-y.order);
+const ck=r=>{if(r.error)throw r.error;return r.data};
+let uid,projects=[],files=[],cur=null,curFile=null,timer=null,dirty=false,saved=null,ed=null;
+const secFiles=k=>sorted(files.filter(f=>f.projectId===cur.id&&f.section===k));
+const toP=r=>({id:r.id,name:r.name,order:r.position});
+const toF=r=>({id:r.id,projectId:r.project_id,section:r.section,title:r.title,html:r.html,order:r.position});
+
+addEventListener('unhandledrejection',e=>modal('Something went wrong: '+esc(e.reason&&e.reason.message||e.reason),null,'OK',()=>{}));
+
+(async()=>{
+ const {data:{session}}=await sb.auth.getSession();
+ session?start(session.user):login();
+})();
+
+async function start(user){
+ uid=user.id;
+ const [ps,fs]=await Promise.all([sb.from('projects').select('*'),sb.from('files').select('*')]);
+ projects=ck(ps).map(toP);files=ck(fs).map(toF);
+ render();
+}
+function login(msg=''){
+ $('#side').style.display='none';
+ $('#main').innerHTML=`<div class="login"><h1 style="font:600 1.9rem Georgia,serif;margin:0 0 20px">Storyloom</h1><input id="em" type="email" placeholder="Email" autocomplete="username"><input id="pw" type="password" placeholder="Password" autocomplete="current-password"><button id="go">Log in</button><p class="hint" id="msg">${esc(msg)}</p></div>`;
+ const go=async()=>{
+  const {data,error}=await sb.auth.signInWithPassword({email:$('#em').value.trim(),password:$('#pw').value});
+  error?$('#msg').textContent=error.message:start(data.user);
+ };
+ $('#go').onclick=go;$('#pw').onkeydown=e=>{if(e.key==='Enter')go()};
+}
+
+function modal(msg,val,ok,cb){
+ const m=$('#modal');
+ m.innerHTML=`<div class="box"><p>${msg}</p>${val!==null?`<input value="${esc(val)}">`:''}<div class="row"><button class="ghost" id="mc">Cancel</button><button id="mo">${ok}</button></div></div>`;
+ m.hidden=false;
+ const inp=m.querySelector('input');if(inp){inp.focus();inp.select()}
+ const done=v=>{m.hidden=true;if(v)cb(inp?inp.value.trim():true)};
+ $('#mc').onclick=()=>done(false);$('#mo').onclick=()=>done(true);
+ if(inp)inp.onkeydown=e=>{if(e.key==='Enter')done(true)};
+}
+
+function render(){side();main()}
+function side(){
+ $('#side').style.display='';
+ let h='<div class="brand">Storyloom</div><a class="nav" data-a="home">My Stories</a>';
+ for(const p of sorted(projects)){
+  h+=`<a class="proj ${p===cur?'on':''}" data-a="open" data-id="${p.id}">${esc(p.name)}</a>`;
+  if(p===cur)for(const [k,l] of [['build','Story Build'],['chapters','Story Chapters']]){
+   h+=`<div class="sec"><span>${l}</span><button data-a="newf" data-s="${k}" title="New file">+</button></div>`;
+   for(const f of secFiles(k))h+=`<div class="file ${f===curFile?'on':''}" data-a="file" data-id="${f.id}"><span>${esc(f.title||'Untitled')}</span>${f===curFile?'<button data-a="up" title="Move up">↑</button><button data-a="down" title="Move down">↓</button><button data-a="delf" title="Delete">×</button>':''}</div>`;
+  }
+ }
+ $('#side').innerHTML=h+'<button class="addp" data-a="newp">+ New story</button><br><button class="ghost out" data-a="out">Log out</button>';
+}
+
+function main(){
+ const m=$('#main');ed=null;
+ const top='<div class="top"><button class="ghost" data-a="menu">☰ Menu</button></div>';
+ if(curFile){
+  m.innerHTML=top+`<div class="page"><span class="meta"><span id="wc"></span> · <span id="st">Saved</span></span><input class="title" id="ti" placeholder="Untitled" value="${esc(curFile.title)}">
+  <div class="tools">
+   <button data-c="bold"><b>B</b></button><button data-c="italic"><i>I</i></button><button data-c="underline"><u>U</u></button>
+   <button data-h="h1">H1</button><button data-h="h2">H2</button><button data-h="p">¶</button>
+   <button data-c="insertUnorderedList">• List</button><button data-c="insertOrderedList">1. List</button>
+   <button data-a="img">Image</button>
+  </div><div class="ed" id="ed" contenteditable="true" data-ph="Begin here…"></div>
+  <input type="file" id="fi" accept="image/*" hidden></div>`;
+  ed=$('#ed');ed.innerHTML=curFile.html||'';count();
+  ed.oninput=()=>{count();touch()};
+  ed.onpaste=e=>{e.preventDefault();document.execCommand('insertText',false,e.clipboardData.getData('text/plain'))};
+  $('#ti').oninput=e=>{curFile.title=e.target.value;side();touch()};
+  $('#fi').onchange=upload;
+ }else if(cur){
+  m.innerHTML=top+`<div class="page"><h1>${esc(cur.name)}</h1><p class="hint">Choose a file in the sidebar, or add a new one to Story Build or Story Chapters.</p></div>`;
+ }else{
+  m.innerHTML=top+`<div class="page"><h1>My Stories</h1>${sorted(projects).map(p=>`<div class="row"><span class="n" data-a="open" data-id="${p.id}">${esc(p.name)}</span><button data-a="open" data-id="${p.id}">Open</button><button class="ghost" data-a="renp" data-id="${p.id}">Rename</button><button class="ghost" data-a="delp" data-id="${p.id}">Delete</button></div>`).join('')||'<p class="hint">No stories yet. Start one with “New story”.</p>'}</div>`;
+ }
+}
+
+function count(){const t=ed.innerText.trim(),n=t?t.split(/\s+/).length:0;$('#wc').textContent=n.toLocaleString()+(n===1?' word':' words')}
+function status(t){const s=$('#st');if(s)s.textContent=t}
+function touch(){dirty=true;status('Saving…');clearTimeout(timer);timer=setTimeout(flush,700)}
+async function flush(){
+ clearTimeout(timer);
+ if(!dirty||!curFile||!ed)return;
+ dirty=false;const f=curFile;f.html=ed.innerHTML;
+ const {error}=await sb.from('files').update({title:f.title,html:f.html,updated_at:new Date().toISOString()}).eq('id',f.id);
+ if(error){dirty=true;status('Not saved, retrying…');timer=setTimeout(flush,3000)}else status('Saved');
+}
+addEventListener('pagehide',flush);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)flush()});
+document.addEventListener('selectionchange',()=>{const s=getSelection();if(ed&&s.rangeCount&&ed.contains(s.anchorNode))saved=s.getRangeAt(0)});
+
+async function upload(e){
+ const file=e.target.files[0];e.target.value='';if(!file)return;
+ status('Uploading…');
+ const ext=(file.name.split('.').pop()||'png').toLowerCase().replace(/[^a-z0-9]/g,'');
+ const path=`${uid}/${crypto.randomUUID()}.${ext}`;
+ const {error}=await sb.storage.from('images').upload(path,file,{contentType:file.type});
+ if(error){status('Image upload failed');return}
+ const url=sb.storage.from('images').getPublicUrl(path).data.publicUrl;
+ ed.focus();
+ if(saved){const s=getSelection();s.removeAllRanges();s.addRange(saved)}
+ document.execCommand('insertImage',false,url);
+ touch();
+}
+
+async function move(dir){
+ const l=secFiles(curFile.section),i=l.indexOf(curFile),n=l[i+dir];
+ if(!n)return;
+ const a=curFile.order;curFile.order=n.order;n.order=a;side();
+ const r=await Promise.all([sb.from('files').update({position:curFile.order}).eq('id',curFile.id),sb.from('files').update({position:n.order}).eq('id',n.id)]);r.forEach(ck);
+}
+
+document.addEventListener('mousedown',e=>{if(e.target.closest('.tools button'))e.preventDefault()});
+document.addEventListener('click',async e=>{
+ const c=e.target.closest('[data-c]');
+ if(c){document.execCommand(c.dataset.c);touch();return}
+ const hb=e.target.closest('[data-h]');
+ if(hb){const want=hb.dataset.h,now=(document.queryCommandValue('formatBlock')||'').toLowerCase();document.execCommand('formatBlock',false,now===want?'p':want);touch();return}
+ const el=e.target.closest('[data-a]');if(!el)return;
+ const a=el.dataset.a,id=el.dataset.id;
+ if(a==='menu'){$('#side').classList.toggle('open');return}
+ if(a==='img'){$('#fi').click();return}
+ if(a==='up'||a==='down'){e.stopPropagation();move(a==='up'?-1:1);return}
+ if(a==='out'){await flush();await sb.auth.signOut();projects=[];files=[];cur=null;curFile=null;login();return}
+ if(a==='home'){await flush();cur=null;curFile=null;render();$('#side').classList.remove('open')}
+ else if(a==='open'){await flush();cur=projects.find(p=>p.id===id);curFile=null;render()}
+ else if(a==='file'){await flush();curFile=files.find(f=>f.id===id);render();$('#side').classList.remove('open')}
+ else if(a==='newp')modal('Name your story','','Create',async n=>{
+  if(!n)return;await flush();
+  const p=toP(ck(await sb.from('projects').insert({name:n,position:Date.now()}).select().single()));
+  projects.push(p);cur=p;curFile=null;render();
+ });
+ else if(a==='renp'){const p=projects.find(p=>p.id===id);modal('Rename story',p.name,'Save',async n=>{if(!n)return;ck(await sb.from('projects').update({name:n}).eq('id',id));p.name=n;render()})}
+ else if(a==='delp'){const p=projects.find(p=>p.id===id);modal(`Delete “${esc(p.name)}” and all its files? This can’t be undone.`,null,'Delete',async()=>{
+  ck(await sb.from('projects').delete().eq('id',id));
+  files=files.filter(f=>f.projectId!==id);projects=projects.filter(x=>x!==p);if(cur===p){cur=null;curFile=null}render();
+ })}
+ else if(a==='newf'){
+  await flush();
+  const f=toF(ck(await sb.from('files').insert({project_id:cur.id,section:el.dataset.s,position:Date.now()}).select().single()));
+  files.push(f);curFile=f;render();$('#side').classList.remove('open');$('#ti').focus();
+ }
+ else if(a==='delf'){e.stopPropagation();const f=curFile;modal(`Delete “${esc(f.title||'Untitled')}”?`,null,'Delete',async()=>{
+  dirty=false;clearTimeout(timer);ck(await sb.from('files').delete().eq('id',f.id));files=files.filter(x=>x!==f);curFile=null;render();
+ })}
+});
+</script>
+</body>
+</html>
